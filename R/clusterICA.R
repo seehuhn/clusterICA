@@ -80,10 +80,10 @@
 clusterICA <- function(x, xw, m, n.comp, p, rand.iter=5000, rand.out=100, seed,
                        kmean.tol=0.1, kmean.iter=100,
                        opt.maxit=1000, opt.method="Nelder-Mead",
-                       size.clust, compute.scores = TRUE, verbose=FALSE) {
-    # check if we have whitened data
-    # here p is how many PCA loadings we use to do ICA on
+                       size.clust, compute.scores = TRUE, verbose = FALSE) {
+    # p is how many PCA loadings we use to do ICA on
     # n.comp is how many ICA loadings we want outputted
+
     if (missing(xw)) {
         xw <- jvcoords::whiten(x, compute.scores=TRUE)
     } else {
@@ -100,35 +100,27 @@ clusterICA <- function(x, xw, m, n.comp, p, rand.iter=5000, rand.out=100, seed,
     z <- xw$y
 
     n <- nrow(z)
-    if(missing(p)) {
+    if (missing(p)) {
         p <- ncol(z)
-        } else {
-            z <- z[,1:p]
-        }
-    if(missing(n.comp)) n.comp <- p
-    if(missing(m)) m <- floor(sqrt(n))
-
-
-    # some error checking
-    if(n.comp > (p)) {
-        warning("n.comp = ", n.comp, " must be less than p + 1 = ",
-                (p+1), ". Set n.comp = p.")
-        n.comp <- p
+    } else {
+        z <- z[,1:p]
     }
+    if (missing(n.comp)) n.comp <- p
+    if (missing(m)) m <- floor(sqrt(n))
 
-    # initiate loadings list
+    stopifnot(n.comp <= p)
+
+    # initialize list of loadings
     loadings <- vector(mode = "list", length = n.comp)
     entr <- numeric()
     IC <- diag(p)
-    loopNum <- n.comp
-    if (loopNum == p) loopNum <- p - 1
+    loopNum <- min(n.comp, p - 1)
     k <- 1
     while (k <= loopNum) {
-    #for(k in 1:loopNum) {
         if (verbose == TRUE) {
             cat("optimising direction", k, "out of", n.comp, "\n")
         }
-        r <- p - k + 1 # the dimension of the search space
+        r <- p - k + 1 # the number of dimensions of the search space
 
         if (verbose == TRUE) {
             cat("// Finding random starting points", "\n")
@@ -145,16 +137,16 @@ clusterICA <- function(x, xw, m, n.comp, p, rand.iter=5000, rand.out=100, seed,
         }
         # do we want to save all directions in each cluster,
         # or just the best (pre-optim)
-        if(!missing(size.clust) && size.clust < 1 && size.clust > -1) {
+        if (!missing(size.clust) && size.clust < 1 && size.clust > -1) {
             warning("size.clust must be >= 1. Set size.clust = 1")
             size.clust <- 1L
         }
-        if(!missing(size.clust) && size.clust < -1) {
+        if (!missing(size.clust) && size.clust < -1) {
             warning("size.clust must be >= 1. Set size.clust = ",
                     as.integer(-size.clust))
             size.clust <- as.integer(-size.clust)
         }
-        if(!missing(size.clust) && (size.clust > 1)) {
+        if (!missing(size.clust) && (size.clust > 1)) {
             best.dirs <- clusterNorm(z = z, IC=IC, k=k, m=m,
                                      dirs=randDir, kmean.tol=kmean.tol,
                                      kmean.iter=kmean.iter, save.all=TRUE)
@@ -181,7 +173,7 @@ clusterICA <- function(x, xw, m, n.comp, p, rand.iter=5000, rand.out=100, seed,
                                   best.dirs=best.dirs, maxit = opt.maxit,
                                   opt.method=opt.method, size.clust=size.clust,
                                   verbose=verbose)
-        if(!missing(size.clust) && (size.clust > 1)) {
+        if (!missing(size.clust) && (size.clust > 1)) {
             icaLoading <- icaLoading$best
         }
         if (verbose == TRUE) {
@@ -192,7 +184,7 @@ clusterICA <- function(x, xw, m, n.comp, p, rand.iter=5000, rand.out=100, seed,
         bestDir <- icaLoading$dirOptim
 
         # is this projection better than any previous projections?
-        if(any(bestEntr < entr)) {
+        if (any(bestEntr < entr)) {
             k_tmp <- min(which(bestEntr < entr))
             lenBestDir <- length(bestDir)
             r_tmp <- (p - k_tmp + 1)
@@ -208,15 +200,15 @@ clusterICA <- function(x, xw, m, n.comp, p, rand.iter=5000, rand.out=100, seed,
             dirTmp[[1]]$dirs <- bestDir
             dirTmp[[1]]$entr <- newEntr
             icaLoading <- icaClusters(z=z, IC=IC, k=k, m=m,
-                                  best.dirs=dirTmp, maxit = opt.maxit,
-                                  opt.method=opt.method, size.clust=size.clust,
-                                  verbose=verbose)
+                                      best.dirs=dirTmp, maxit = opt.maxit,
+                                      opt.method=opt.method, size.clust=size.clust,
+                                      verbose=verbose)
             bestDir <- icaLoading$dirOptim
             bestEntr <- icaLoading$dirEntr
             entr <- entr[1:k_tmp]
             if (verbose == TRUE) {
-                cat("///// Current projection better than ", k, "th projection", "\n")               
-                cat("///// Replacing ", k, "th projection", "\n")               
+                cat("///// Current projection better than ", k, "th projection", "\n")
+                cat("///// Replacing ", k, "th projection", "\n")
             }
         }
 
@@ -249,14 +241,12 @@ clusterICA <- function(x, xw, m, n.comp, p, rand.iter=5000, rand.out=100, seed,
     colnames(IC) <- paste0('IC', seq_len(n.comp))
     rownames(IC) <- rownames(xw$loadings)
 
-    res <- list()
-    res$xw <- xw
+    res <- jvcoords::appendTrfm(xw, "orth", IC)
+    res$name <- "clusterICA"
     res$IC <- IC
-    if(compute.scores == TRUE) {
-        y <- z %*% IC
-        res$y <- y
+    if (compute.scores) {
+        res$y <- z %*% IC
     }
     res$entropy <- entr
-    class(res) = "clusterICA"
     res
 }
